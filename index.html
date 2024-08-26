@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Turn-Based Game</title>
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background-color: #f8f9fa;
+        }
+        #container {
+            text-align: center;
+            max-width: 800px;
+            margin: 20px;
+        }
+        #header {
+            font-size: 48px;
+            font-weight: bold;
+            margin-bottom: 30px;
+            color: #343a40;
+        }
+        #game-board {
+            display: grid;
+            grid-template-columns: repeat(5, 60px);
+            grid-template-rows: repeat(5, 60px);
+            gap: 1px;
+            margin: 20px auto;
+            position: relative;
+        }
+        .cell {
+            width: 60px;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            cursor: pointer;
+        }
+        .cell:nth-child(even) {
+            background-color: #d3d3d3;
+        }
+        .cell:nth-child(odd) {
+            background-color: #f0f0f0;
+        }
+        #move-buttons button {
+            margin: 2px;
+        }
+        #chat-container, #emoji-container {
+            display: none;
+        }
+        #emoji-container {
+            margin: 10px;
+        }
+        .emoji {
+            font-size: 24px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        #chat-box {
+            border: 1px solid #ccc;
+            height: 100px;
+            overflow-y: auto;
+            margin-bottom: 10px;
+            padding: 5px;
+            background-color: #fff;
+        }
+        #chat-input {
+            width: calc(100% - 50px);
+            box-sizing: border-box;
+        }
+        #left-names, #right-names {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+        #left-names {
+            left: -80px;
+            writing-mode: vertical-lr;
+        }
+        #right-names {
+            right: -80px;
+            writing-mode: vertical-lr;
+        }
+        #left-names span, #right-names span {
+            display: block;
+            margin: 5px 0;
+        }
+        #start-button {
+            font-size: 24px;
+            padding: 15px 30px;
+            background-color: #007bff;
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        #start-button:hover {
+            background-color: #0056b3;
+        }
+        #restart-button {
+            display: none; /* Initially hidden */
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="header">Turn-Based Game</div>
+        
+        <button id="start-button" class="btn btn-primary btn-lg">Let's Play</button>
+        <button id="restart-button" class="btn btn-secondary btn-lg">Restart</button>
+        
+        <!-- Game elements -->
+        <div id="game-status"></div>
+        <div id="game-board">
+            <!-- The game board and player names will be dynamically added here -->
+            <div id="left-names"></div>
+            <div id="right-names"></div>
+        </div>
+        <div id="move-buttons"></div>
+        <div id="move-log"></div>
+        
+        <!-- Chat and Emoji Sections -->
+        <div id="chat-container">
+            <div id="chat-box"></div>
+            <input type="text" id="chat-input" class="form-control" placeholder="Type your message here...">
+            <button id="send-message" class="btn btn-primary mt-2">Send</button>
+        </div>
+        <div id="emoji-container">
+            <span class="emoji" onclick="sendEmoji('😊')">😊</span>
+            <span class="emoji" onclick="sendEmoji('😂')">😂</span>
+            <span class="emoji" onclick="sendEmoji('❤️')">❤️</span>
+            <span class="emoji" onclick="sendEmoji('😢')">😢</span>
+        </div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.6/dist/umd/popper.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+    <script>
+        const gameBoard = document.getElementById('game-board');
+        const gameStatus = document.getElementById('game-status');
+        const moveButtons = document.getElementById('move-buttons');
+        const moveLog = document.getElementById('move-log');
+        const startButton = document.getElementById('start-button');
+        const restartButton = document.getElementById('restart-button');
+        const chatContainer = document.getElementById('chat-container');
+        const emojiContainer = document.getElementById('emoji-container');
+        const chatBox = document.getElementById('chat-box');
+        const chatInput = document.getElementById('chat-input');
+        const sendMessageButton = document.getElementById('send-message');
+
+        const socket = new WebSocket('ws://localhost:8080');
+
+        let currentPlayer = 'A';
+        let selectedCell = null;
+        let gameState = [];
+        let gameStarted = false;
+
+        socket.onopen = () => {
+            console.log('Connected to server');
+        };
+
+        socket.onmessage = event => {
+            const data = JSON.parse(event.data);
+            if (data.type === 'init' || data.type === 'update') {
+                gameState = data.gameState;
+                currentPlayer = data.currentPlayer;
+                if (gameStarted) {
+                    updateUI();
+                }
+            } else if (data.type === 'invalid') {
+                alert(`Invalid move: ${data.reason}`);
+            } else if (data.type === 'chat') {
+                chatBox.innerHTML += `<div>${data.message}</div>`;
+                chatBox.scrollTop = chatBox.scrollHeight;
+            }
+        };
+
+        startButton.onclick = () => {
+            socket.send(JSON.stringify({ type: 'initialize' }));
+            startButton.style.display = 'none';
+            restartButton.style.display = 'block';
+            chatContainer.style.display = 'block';
+            emojiContainer.style.display = 'block';
+            gameStarted = true;
+            // Add game board setup here if needed
+        };
+
+        restartButton.onclick = () => {
+            socket.send(JSON.stringify({ type: 'initialize' }));
+            startButton.style.display = 'block';
+            restartButton.style.display = 'none';
+            chatContainer.style.display = 'none';
+            emojiContainer.style.display = 'none';
+            gameStarted = false;
+            gameBoard.innerHTML = '';
+            gameStatus.textContent = '';
+            chatBox.innerHTML = '';  // Clear chat box on restart
+        };
+
+        function updateUI() {
+            gameBoard.innerHTML = '';
+            gameStatus.textContent = `Player ${currentPlayer}'s Turn`;
+
+            gameState.forEach((row, rowIndex) => {
+                row.forEach((cell, colIndex) => {
+                    const cellDiv = document.createElement('div');
+                    cellDiv.classList.add('cell');
+                    cellDiv.textContent = cell;
+                    cellDiv.onclick = () => onCellClick(rowIndex, colIndex);
+                    gameBoard.appendChild(cellDiv);
+                });
+            });
+        }
+
+        function onCellClick(rowIndex, colIndex) {
+            const selectedCharacter = gameState[rowIndex][colIndex];
+            if (selectedCharacter.startsWith(currentPlayer)) {
+                selectedCell = { rowIndex, colIndex };
+                showMoveOptions(rowIndex, colIndex);
+            }
+        }
+
+        function showMoveOptions(rowIndex, colIndex) {
+            moveButtons.innerHTML = '';
+
+            const character = gameState[rowIndex][colIndex];
+            const moves = getMoveOptions(character, rowIndex, colIndex);
+
+            moves.forEach(move => {
+                const moveButton = document.createElement('button');
+                moveButton.textContent = move.label;
+                moveButton.classList.add('btn', 'btn-info');
+                moveButton.onclick = () => makeMove(move.toRow, move.toCol);
+                moveButtons.appendChild(moveButton);
+            });
+        }
+
+        function getMoveOptions(character, rowIndex, colIndex) {
+            const moves = [];
+            if (character.startsWith('A') || character.startsWith('B')) {
+                if (rowIndex > 0 && gameState[rowIndex - 1][colIndex] === '') {
+                    moves.push({ label: 'Forward', toRow: rowIndex - 1, toCol: colIndex });
+                }
+
+                if (rowIndex < 4 && gameState[rowIndex + 1][colIndex] === '') {
+                    moves.push({ label: 'Backward', toRow: rowIndex + 1, toCol: colIndex });
+                }
+                if (colIndex > 0 && gameState[rowIndex][colIndex - 1] === '') {
+                    moves.push({ label: 'Left', toRow: rowIndex, toCol: colIndex - 1 });
+                }
+                if (colIndex < 4 && gameState[rowIndex][colIndex + 1] === '') {
+                    moves.push({ label: 'Right', toRow: rowIndex, toCol: colIndex + 1 });
+                }
+            }
+            return moves;
+        }
+
+        function makeMove(toRow, toCol) {
+            if (selectedCell) {
+                socket.send(JSON.stringify({
+                    type: 'move',
+                    from: `${selectedCell.rowIndex}-${selectedCell.colIndex}`,
+                    to: `${toRow}-${toCol}`
+                }));
+                selectedCell = null;
+                moveButtons.innerHTML = '';
+            }
+        }
+
+        function sendEmoji(emoji) {
+            const fullMessage = `${currentPlayer}: ${emoji}`;
+            socket.send(JSON.stringify({
+                type: 'chat',
+                message: fullMessage
+            }));
+            chatBox.innerHTML += `<div>${fullMessage}</div>`;
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        function sendMessage() {
+            const message = chatInput.value.trim();
+            if (message) {
+                const fullMessage = `${currentPlayer}: ${message}`;
+                socket.send(JSON.stringify({
+                    type: 'chat',
+                    message: fullMessage
+                }));
+                chatBox.innerHTML += `<div>${fullMessage}</div>`;
+                chatBox.scrollTop = chatBox.scrollHeight;
+                chatInput.value = '';  // Clear input field
+            }
+        }
+
+        sendMessageButton.onclick = sendMessage;
+
+        chatInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();  // Prevent the default Enter key action (like new line)
+                sendMessage();
+            }
+        });
+    </script>
+</body>
+</html>
