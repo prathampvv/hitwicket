@@ -1,10 +1,16 @@
 const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
-
+const path = require('path'); // Make su
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'index.html'));
+});
+// Static file serving for script.js (if needed)
+app.use(express.static(__dirname));
+
 
 let gameState = [];
 let currentPlayer = 'A';
